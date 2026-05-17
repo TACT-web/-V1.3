@@ -77,7 +77,7 @@ with tab_study:
 
     if cam_file and st.button("✨ ブースト開始", use_container_width=True):
         genai.configure(api_key=st.session_state.user_api_key) [cite: 13]
-        model = genai.GenerativeModel('gemini-1.5-flash') # 安定版に変更
+        model = genai.GenerativeModel(''gemini-3-flash-preview') # 安定版に変更
         with st.status("教科書を全文解析中..."):
             count = st.session_state.quiz_count
             full_prompt = f"""あなたは{st.session_state.school_type}{st.session_state.grade}担当。
