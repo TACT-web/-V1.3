@@ -36,35 +36,46 @@ if "voice_speed" not in st.session_state: st.session_state.voice_speed = 1.0
 if "show_voice_btns" not in st.session_state: st.session_state.show_voice_btns = False
 if "review_mode" not in st.session_state: st.session_state.review_mode = False
 
-# 【UX改善】自動タブ移動のためのインデックス管理変数
-if "active_tab" not in st.session_state: st.session_state.active_tab = 0
+# 【2番対策】自動タブ移動のためのインデックス管理
+if "target_tab" not in st.session_state: st.session_state.target_tab = 0
 
-# CSS適用（表形式デザイン ＋ 【UX改善】画面右下に追従して浮く停止ボタンのスタイル）
+# --- 【4番対策】画面右下に完全追従する「音声停止」フローティングボタン ---
+# StreamlitのCSS制限を回避するため、完全に独立したHTML/CSSとしてブラウザに埋め込みます
+floating_stop_html = """
+<style>
+    .floating-stop-btn {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        z-index: 999999;
+        background-color: #ff4b4b;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        font-size: 16px;
+        font-weight: bold;
+        border-radius: 50px;
+        cursor: pointer;
+        box-shadow: 0px 4px 15px rgba(0,0,0,0.4);
+        transition: all 0.2s ease;
+    }
+    .floating-stop-btn:hover {
+        background-color: #ff3333;
+        transform: scale(1.05);
+    }
+</style>
+<button class="floating-stop-btn" onclick="window.parent.speechSynthesis.cancel();">🛑 音声停止</button>
+"""
+st.components.v1.html(floating_stop_html, height=0)
+
+# 表形式・基本デザイン用CSS適用
 st.markdown(f"""
 <style>
 .content-body {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6; }}
 .content-body table {{ font-size: {st.session_state.font_size}px !important; width: 100%; border-collapse: collapse; }}
 .content-body th, .content-body td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
-
-/* 画面右下に固定されるフローティング音声停止ボタンのCSS */
-div.stActionButton_floating {{
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    z-index: 999999;
-    background-color: #ff4b4b;
-    border-radius: 50px;
-    box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
-}}
 </style>
 """, unsafe_allow_html=True)
-
-# 画面追従型の音声停止ボタンを配置（常に右下に表示され、押すと即座に音声停止）
-with st.container():
-    st.markdown('<div class="stActionButton_floating">', unsafe_allow_html=True)
-    if st.button("🛑 音声停止", key="floating_stop_btn"):
-        speak_js("")
-    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 1. 同意画面 ---
 if not st.session_state.agreed:
@@ -106,18 +117,22 @@ st.session_state.font_size = st.sidebar.slider("🔍 文字サイズ", 14, 45, s
 st.session_state.voice_speed = st.sidebar.slider("🐌 音声速度", 0.5, 2.0, st.session_state.voice_speed, 0.1)
 
 # --- 3. メインタブ管理 ---
-# 【UX改善】セッション状態の active_tab と連動させ、コード側からタブの切り替えを可能に
 tab_study, tab_history, tab_config = st.tabs(["📖 学習", "📈 履歴", "⚙️ 設定変更"])
 
-# ページリロード時に、指定されたアクティブタブを開くスクリプトの埋め込み
-st.markdown(f"""
-<script>
-    var tabs = window.parent.document.querySelectorAll('.stTabs [data-baseweb="tab"]');
-    if (tabs.length > 0) {{
-        tabs[{st.session_state.active_tab}].click();
-    }}
-</script>
-""", unsafe_allow_html=True)
+# 【2番対策】レンダリング完了後に、指定のタブへ確実に自動移動させるJavaScript（ディレイ付）
+if st.session_state.target_tab != 0:
+    js_switch_tab = f"""
+    <script>
+    setTimeout(function() {{
+        var tabs = window.parent.document.querySelectorAll('.stTabs [data-baseweb="tab"]');
+        if (tabs.length > {st.session_state.target_tab}) {{
+            tabs[{st.session_state.target_tab}].click();
+        }}
+    }}, 300); // 0.3秒待ってから確実にクリック
+    </script>
+    """
+    st.components.v1.html(js_switch_tab, height=0)
+    st.session_state.target_tab = 0 # 発火後は初期化
 
 # 📈 履歴タブ
 with tab_history:
@@ -145,7 +160,7 @@ with tab_history:
                     orig_log = st.session_state.history[item['subject']][item['orig_idx']]
                     st.write(f"📝 収録問題数: {len(orig_log.get('quizzes', []))}問")
                     
-                    # 【UX改善】「解き直し」ボタンを押したら、データを読み込んで即座に「学習」タブ（インデックス0）へ切り替える
+                    # 【2番対策】「解き直し」ボタンを押した瞬間に、学習タブ（インデックス0）への自動移動フラグをセット
                     if st.button("🔁 このクイズを解き直す", key=f"rev_btn_{item['subject']}_{item['orig_idx']}"):
                         st.session_state.final_json = {
                             "explanation_blocks": [{"text": f"### 🕒 復習モード（{item['subject']} p.{item['page']}）"}],
@@ -154,7 +169,7 @@ with tab_history:
                             "page": item['page']
                         }
                         st.session_state.review_mode = True
-                        st.session_state.active_tab = 0  # 0番目（学習タブ）を指定
+                        st.session_state.target_tab = 0  # 0番目（学習タブ）をターゲットに指定
                         st.rerun()
 
 # ⚙️ 設定変更タブ
@@ -178,14 +193,11 @@ with tab_config:
             })
             st.session_state.history = load_history()
             st.success("設定を更新しました！")
-            st.session_state.active_tab = 0  # 保存後は学習タブへ戻す
+            st.session_state.target_tab = 0  # 変更後は学習タブへジャンプ
             st.rerun()
 
 # 📖 学習タブ
 with tab_study:
-    # ユーザーが手動でタブを切り替えた時のためにセッションのタブインデックスを同期
-    st.session_state.active_tab = 0
-
     if st.session_state.get("review_mode", False):
         st.warning("⚠️ 現在「履歴からの解き直し（復習モード）」を実行中です。")
         if st.button("❌ 復習モードを終了して通常スキャンに戻る"):
@@ -257,7 +269,7 @@ with tab_study:
                 
                 if st.session_state.show_voice_btns:
                     if st.button(f"▶ 再生", key=f"v_{i}"):
-                        # 【バグ修正】英語の時は日本語の有無を無視して、確実に「en-US」の音声エンジンを割り当てる
+                        # 【3番対策】教科が「英語」なら、日本語の混じりに関係なく強制的に en-US で確定発話させる
                         lang = "en-US" if used_sub == "英語" else "ja-JP"
                         speak_js(get_clean_speech_text(block["text"]), st.session_state.voice_speed, lang)
 
@@ -291,7 +303,6 @@ with tab_study:
                 if subj not in st.session_state.history: 
                     st.session_state.history[subj] = []
                     
-                # 【バグ修正】確実な日本時間（JST）で保存
                 st.session_state.history[subj].append({
                     "date": get_jst_now_str(), 
                     "page": res.get("page", "--"), 
