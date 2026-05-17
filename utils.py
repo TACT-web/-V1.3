@@ -1,7 +1,7 @@
 import streamlit as st
 import json, os, re, datetime
 
-# --- 初期セットアップの永続化 ---
+# --- 初期セットアップの永続化用設定 ---
 CONFIG_FILE = "app_config.json"
 
 def load_app_config():
@@ -29,8 +29,7 @@ def load_history():
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except: 
-            return {}
+        except: return {}
     return {}
 
 def save_history(history):
@@ -38,12 +37,12 @@ def save_history(history):
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
-# --- 日本時間の取得 ---
+# --- 【時計修正】確実に日本時間を取得する関数 ---
 def get_jst_now_str():
-    # サーバーの時刻（UTCなど）に関わらず日本時間(JST)を計算
-    utc_now = datetime.datetime.utcnow()
-    jst_now = utc_now + datetime.timedelta(hours=9)
-    return jst_now.strftime("%Y-%m-%d %H:%M")
+    # サーバーが海外時間(UTC)でも、強制的に9時間を足して日本時間を計算
+    now_utc = datetime.datetime.utcnow()
+    now_jst = now_utc + datetime.timedelta(hours=9)
+    return now_jst.strftime("%Y-%m-%d %H:%M")
 
 # --- 音声再生エンジン ---
 def speak_js(text, speed=1.0, lang="ja-JP"):
@@ -63,6 +62,7 @@ def speak_js(text, speed=1.0, lang="ja-JP"):
 
 def get_clean_speech_text(text):
     if not text: return ""
+    # スラッシュリーディング用の記号（|）やマークダウン記号、ページ表記を消去
     clean_text = re.sub(r'\[P\..+?\]', '', text)
     clean_text = re.sub(r'\|', ' ', clean_text)
     clean_text = re.sub(r'<[^>]+>', '', clean_text)
