@@ -20,8 +20,14 @@ if "user_api_key" not in st.session_state: st.session_state.user_api_key = ""
 if "voice_speed" not in st.session_state: st.session_state.voice_speed = 1.0
 if "show_voice_btns" not in st.session_state: st.session_state.show_voice_btns = False
 
-# CSS適用
-st.markdown(f"<style>.content-body {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6; }}</style>", unsafe_allow_html=True)
+# CSS適用（表の文字サイズや余白もきれいに整える設定を追加しています）
+st.markdown(f"""
+<style>
+.content-body {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6; }}
+.content-body table {{ font-size: {st.session_state.font_size}px !important; width: 100%; border-collapse: collapse; }}
+.content-body th, .content-body td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+</style>
+""", unsafe_allow_html=True)
 
 # --- 1. 同意画面 ---
 if not st.session_state.agreed:
@@ -44,13 +50,11 @@ if not st.session_state.setup_completed:
         quiz_count = c2.selectbox("問題数", [10, 15, 20, 25])
         
         if st.form_submit_button("🚀 学習を開始"):
-            # フォームが送信された瞬間にセッション状態へ値を確定させて保存する
             st.session_state.user_api_key = user_key
             st.session_state.school_type = school_type
             st.session_state.grade = grade
             st.session_state.quiz_count = quiz_count
             
-            # 学びのデータが確定した後に履歴を安全にロードする
             st.session_state.history = load_history()
             st.session_state.setup_completed = True
             st.rerun()
@@ -106,11 +110,13 @@ with tab_study:
 
     if st.session_state.final_json:
         res = st.session_state.final_json
+        used_sub = res.get("used_subject", subject_choice)
+        
         v_cols = st.columns(4)
         if v_cols[0].button("🔊 全文"):
             full_text = " ".join([b["text"] for b in res["explanation_blocks"]])
             speak_js(get_clean_speech_text(full_text), st.session_state.voice_speed)
-        if subject_choice == "英語" and v_cols[1].button("🔊 英語のみ"):
+        if used_sub == "英語" and v_cols[1].button("🔊 英語のみ"):
             speak_js(res.get("english_only_script"), st.session_state.voice_speed, "en-US")
         if v_cols[2].button("🛑 停止"): 
             speak_js("")
@@ -121,10 +127,16 @@ with tab_study:
         # 解説ブロックの表示と個別再生
         for i, block in enumerate(res["explanation_blocks"]):
             with st.container(border=True):
-                st.markdown(f'<div class="content-body">{block["text"]}</div>', unsafe_allow_html=True)
+                # 英語（スラッシュリーディングの表）を綺麗にMarkdownとして解釈させて表示する修正
+                # <div>で囲むと表が壊れるため、英語の場合はst.markdownを直接、他はHTMLを適用します
+                if used_sub == "英語":
+                    st.markdown(block["text"])
+                else:
+                    st.markdown(f'<div class="content-body">{block["text"]}</div>', unsafe_allow_html=True)
+                
                 if st.session_state.show_voice_btns:
                     if st.button(f"▶ 再生", key=f"v_{i}"):
-                        lang = "en-US" if subject_choice == "英語" and not any(c in block["text"] for c in "あいうえお") else "ja-JP"
+                        lang = "en-US" if used_sub == "英語" and not any(c in block["text"] for c in "あいうえお") else "ja-JP"
                         speak_js(get_clean_speech_text(block["text"]), st.session_state.voice_speed, lang)
 
         # 確認クイズコーナー
