@@ -36,7 +36,7 @@ if "voice_speed" not in st.session_state: st.session_state.voice_speed = 1.0
 if "show_voice_btns" not in st.session_state: st.session_state.show_voice_btns = False
 if "review_mode" not in st.session_state: st.session_state.review_mode = False
 
-# --- 【4番解決】固定サイドバーへのコントロール配置 ---
+# --- 固定サイドバーへのコントロール配置 ---
 st.sidebar.header("🛑 音声コントロール")
 if st.sidebar.button("🛑 音声を今すぐ停止", use_container_width=True, key="sidebar_stop_btn"):
     speak_js("")
@@ -46,11 +46,11 @@ st.sidebar.header("🛠️ 画面・音声調整")
 st.session_state.font_size = st.sidebar.slider("🔍 文字サイズ", 14, 45, st.session_state.font_size)
 st.session_state.voice_speed = st.sidebar.slider("🐌 音声速度", 0.5, 2.0, st.session_state.voice_speed, 0.1)
 
-# CSSによるスタイル指定
+# CSSによるスタイル指定（文字サイズ調整の即時反映用）
 st.markdown(f"""
 <style>
-.content-body {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6; }}
-.content-body table {{ font-size: {st.session_state.font_size}px !important; width: 100%; border-collapse: collapse; }}
+.content-body {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6; margin-bottom: 10px; }}
+.content-body table {{ font-size: {st.session_state.font_size}px !important; width: 100%; border-collapse: collapse; margin-top: 5px; }}
 .content-body th, .content-body td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
 </style>
 """, unsafe_allow_html=True)
@@ -91,7 +91,7 @@ if not st.session_state.setup_completed:
     st.stop()
 
 
-# --- 3. メインタブ管理 (確実なセッション連動型タブ) ---
+# --- 3. メインタブ管理 ---
 tab_titles = ["📖 学習", "📈 履歴", "⚙️ 設定変更"]
 
 if "current_tab" not in st.session_state:
@@ -128,7 +128,6 @@ if st.session_state.current_tab == "📈 履歴":
                     orig_log = st.session_state.history[item['subject']][item['orig_idx']]
                     st.write(f"📝 収録問題数: {len(orig_log.get('quizzes', []))}問")
                     
-                    # 【2番解決】タブ状態を直接「📖 学習」に書き換えて強制再描画
                     if st.button("🔁 このクイズを解き直す", key=f"rev_btn_{item['subject']}_{item['orig_idx']}"):
                         st.session_state.final_json = {
                             "explanation_blocks": [{"text": f"### 🕒 復習モード（{item['subject']} p.{item['page']}）"}],
@@ -216,7 +215,7 @@ elif st.session_state.current_tab == "📖 学習":
         res["page"] = str(final_page_input)
         st.markdown("---")
 
-        # 音声ボタン配置
+        # 全体音声ボタン
         v_cols = st.columns(3)
         if v_cols[0].button("🔊 全文再生"):
             full_text = " ".join([b["text"] for b in res["explanation_blocks"]])
@@ -230,20 +229,27 @@ elif st.session_state.current_tab == "📖 学習":
         # 本文ブロックループ
         for i, block in enumerate(res["explanation_blocks"]):
             with st.container(border=True):
-                st.markdown(f'<div class="content-body">{block["text"]}</div>', unsafe_allow_html=True)
+                # HTMLタグがマークダウンの表構造を破壊しないよう、外側をセーフティラップ
+                st.markdown(f'<div class="content-body">', unsafe_allow_html=True)
+                st.markdown(block["text"])
+                st.markdown(f'</div>', unsafe_allow_html=True)
                 
                 if st.session_state.show_voice_btns:
                     if st.button(f"▶ 再生", key=f"v_{i}"):
                         if used_sub == "英語":
-                            # 【3番解決】表形式マークダウンから英文列（2列目）だけを抽出し、日本語交じりを排除して en-US で確定発話
+                            # 表形式マークダウン（揺れ対応版）から英文列を正確に抽出
                             lines = block["text"].split("\n")
                             english_sentences = []
                             for line in lines:
                                 if "|" in line:
-                                    parts = [p.strip() for p in line.split("|")]
-                                    if len(parts) >= 4:
-                                        en_text = parts[2] # 役割 | 英文 | 日本語
-                                        if en_text and en_text != "英文" and not en_text.startswith("---"):
+                                    # 先頭や末尾の空要素を除去しつつ分割
+                                    parts = [p.strip() for p in line.split("|") if p.strip() or line.startswith("|")]
+                                    # 分割された要素から英文（2番目のデータ）を安全に追跡
+                                    if len(parts) >= 3:
+                                        # ヘッダーや区切り線を弾く
+                                        role_check = parts[0].replace("*", "")
+                                        en_text = parts[1].replace("*", "")
+                                        if "役割" not in role_check and "---" not in role_check and en_text != "英文":
                                             english_sentences.append(en_text)
                             
                             speech_target = " ".join(english_sentences)
