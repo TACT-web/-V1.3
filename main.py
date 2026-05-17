@@ -46,12 +46,14 @@ st.sidebar.header("🛠️ 画面・音声調整")
 st.session_state.font_size = st.sidebar.slider("🔍 文字サイズ", 14, 45, st.session_state.font_size)
 st.session_state.voice_speed = st.sidebar.slider("🐌 音声速度", 0.5, 2.0, st.session_state.voice_speed, 0.1)
 
-# CSSによるスタイル指定（文字サイズ調整の即時反映用）
+# 【重要】余計なHTMLタグを使わず、Streamlitのすべての文字・テーブルサイズをグローバルに強制変更するCSS
 st.markdown(f"""
 <style>
-.content-body {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6; margin-bottom: 10px; }}
-.content-body table {{ font-size: {st.session_state.font_size}px !important; width: 100%; border-collapse: collapse; margin-top: 5px; }}
-.content-body th, .content-body td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+/* 通常のテキスト、箇条書き、マークダウン全ての文字サイズ */
+.stMarkdown p, .stMarkdown li {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6 !important; }}
+/* テーブル（表形式）の文字サイズとデザイン */
+.stMarkdown table {{ font-size: {st.session_state.font_size}px !important; width: 100% !important; border-collapse: collapse !important; }}
+.stMarkdown th, .stMarkdown td {{ border: 1px solid #ccc !important; padding: 8px !important; text-align: left !important; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -192,7 +194,7 @@ elif st.session_state.current_tab == "📖 学習":
 2. ブロック（explanation_blocks）は最大5行とし、意味のまとまりで分割せよ。
 3. ページ番号 [P.xx] は必ず各ブロックの先頭に記述し、直後で改行せよ。
 ###JSONフォーマット###
-{{ "detected_subject": "{subject_choice}", "page": "数字(判定不可なら0)", "explanation_blocks": [{{"text": "[P.〇]\\n(本文)" }}], "english_only_script": "英文", "boost_comments": {{ "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, "low": {{"text":"次に期待です！教科書をもう一度よく読んで、ゆっくり解き直してみよう。","script":"つぎにきたいです きょうかしょをもういちどよくよんで ゆっくりときなおしてみよう"}} }}, "quizzes": [{{ "question":"..", "options":[".."], "answer":0 }}] }}"""
+{{ "detected_subject": "{subject_choice}", "page": "数字(判定不可なら0)", "explanation_blocks": [{{"text": "[P.〇]\\n(本文)" }}], "english_only_script": "英文", "boost_comments": {{ "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, "low": {{"text":"次に期待です！教科書をもう一度よく
             img = Image.open(cam_file)
             res_raw = model.generate_content([full_prompt, img])
             match = re.search(r"(\{.*\})", res_raw.text, re.DOTALL)
