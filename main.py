@@ -36,19 +36,17 @@ if "voice_speed" not in st.session_state: st.session_state.voice_speed = 1.0
 if "show_voice_btns" not in st.session_state: st.session_state.show_voice_btns = False
 if "review_mode" not in st.session_state: st.session_state.review_mode = False
 
-# --- 【4番解決】固定サイドバーへの音声コントロール配置 ---
+# --- 【4番解決】固定サイドバーへのコントロール配置 ---
 st.sidebar.header("🛑 音声コントロール")
-# メイン画面がどれだけ下にスクロールしても、サイドバーのこのボタンは常に同じ位置に固定されます
 if st.sidebar.button("🛑 音声を今すぐ停止", use_container_width=True, key="sidebar_stop_btn"):
-    speak_js("") # 即座にすべての音声をキャンセル
+    speak_js("")
 
 st.sidebar.markdown("---")
 st.sidebar.header("🛠️ 画面・音声調整")
 st.session_state.font_size = st.sidebar.slider("🔍 文字サイズ", 14, 45, st.session_state.font_size)
-st.sidebar.markdown(f"現在: {st.session_state.font_size}px")
 st.session_state.voice_speed = st.sidebar.slider("🐌 音声速度", 0.5, 2.0, st.session_state.voice_speed, 0.1)
 
-# 基本デザイン用CSS適用
+# CSSによるスタイル指定
 st.markdown(f"""
 <style>
 .content-body {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6; }}
@@ -93,7 +91,7 @@ if not st.session_state.setup_completed:
     st.stop()
 
 
-# --- 3. メインタブ管理 (セッション変数による100%確実なタブ切り替え制御) ---
+# --- 3. メインタブ管理 (確実なセッション連動型タブ) ---
 tab_titles = ["📖 学習", "📈 履歴", "⚙️ 設定変更"]
 
 if "current_tab" not in st.session_state:
@@ -104,7 +102,7 @@ st.session_state.current_tab = selected_tab
 
 st.markdown("---")
 
-# 📈 履歴タブの中身
+# 📈 履歴タブ
 if st.session_state.current_tab == "📈 履歴":
     st.markdown(f"### 📂 {st.session_state.school_type} {st.session_state.grade} の学習履歴")
     
@@ -130,9 +128,10 @@ if st.session_state.current_tab == "📈 履歴":
                     orig_log = st.session_state.history[item['subject']][item['orig_idx']]
                     st.write(f"📝 収録問題数: {len(orig_log.get('quizzes', []))}問")
                     
+                    # 【2番解決】タブ状態を直接「📖 学習」に書き換えて強制再描画
                     if st.button("🔁 このクイズを解き直す", key=f"rev_btn_{item['subject']}_{item['orig_idx']}"):
                         st.session_state.final_json = {
-                            "explanation_blocks": [{"text": f"### 🕒 復煙モード（{item['subject']} p.{item['page']}）"}],
+                            "explanation_blocks": [{"text": f"### 🕒 復習モード（{item['subject']} p.{item['page']}）"}],
                             "quizzes": orig_log["quizzes"],
                             "used_subject": item['subject'],
                             "page": item['page']
@@ -141,7 +140,7 @@ if st.session_state.current_tab == "📈 履歴":
                         st.session_state.current_tab = "📖 学習"
                         st.rerun()
 
-# ⚙️ 設定変更タブの中身
+# ⚙️ 設定変更タブ
 elif st.session_state.current_tab == "⚙️ 設定変更":
     st.markdown("### ⚙️ アプリ環境設定の変更")
     with st.form("edit_config_form"):
@@ -165,7 +164,7 @@ elif st.session_state.current_tab == "⚙️ 設定変更":
             st.session_state.current_tab = "📖 学習"
             st.rerun()
 
-# 📖 学習タブの中身
+# 📖 学習タブ
 elif st.session_state.current_tab == "📖 学習":
     if st.session_state.get("review_mode", False):
         st.warning("⚠️ 現在「履歴からの解き直し（復習モード）」を実行中です。")
@@ -206,18 +205,18 @@ elif st.session_state.current_tab == "📖 学習":
         res = st.session_state.final_json
         used_sub = res.get("used_subject", subject_choice)
         
-        # ページ数連動＆手入力ボックス
+        # ページ調整入力
         st.markdown("---")
         try:
             ai_detected_page = int(res.get("page", 0))
         except:
             ai_detected_page = 0
             
-        final_page_input = st.number_input("📖 対象ページ（AIの誤認識はここで手入力修正できます）", min_value=0, max_value=999, value=ai_detected_page)
+        final_page_input = st.number_input("📖 対象ページ", min_value=0, max_value=999, value=ai_detected_page)
         res["page"] = str(final_page_input)
         st.markdown("---")
 
-        # 通常の操作用ボタン
+        # 音声ボタン配置
         v_cols = st.columns(3)
         if v_cols[0].button("🔊 全文再生"):
             full_text = " ".join([b["text"] for b in res["explanation_blocks"]])
@@ -228,32 +227,26 @@ elif st.session_state.current_tab == "📖 学習":
             st.session_state.show_voice_btns = not st.session_state.show_voice_btns
             st.rerun()
 
-        # 解説ブロックの表示と個別再生
+        # 本文ブロックループ
         for i, block in enumerate(res["explanation_blocks"]):
             with st.container(border=True):
-                if used_sub == "英語":
-                    st.markdown(block["text"])
-                else:
-                    st.markdown(f'<div class="content-body">{block["text"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="content-body">{block["text"]}</div>', unsafe_allow_html=True)
                 
                 if st.session_state.show_voice_btns:
                     if st.button(f"▶ 再生", key=f"v_{i}"):
                         if used_sub == "英語":
-                            # 【3番解決】表形式データから日本語訳列を完全に除外し、英文のみを抽出して確実に en-US で発話させる
+                            # 【3番解決】表形式マークダウンから英文列（2列目）だけを抽出し、日本語交じりを排除して en-US で確定発話
                             lines = block["text"].split("\n")
                             english_sentences = []
                             for line in lines:
                                 if "|" in line:
                                     parts = [p.strip() for p in line.split("|")]
                                     if len(parts) >= 4:
-                                        # 3列目が英文列(役割 | 英文 | 日本語)のため、そこを取得
-                                        en_text = parts[2]
-                                        # ヘッダー行や区切り線を除外
+                                        en_text = parts[2] # 役割 | 英文 | 日本語
                                         if en_text and en_text != "英文" and not en_text.startswith("---"):
                                             english_sentences.append(en_text)
                             
                             speech_target = " ".join(english_sentences)
-                            # もし表形式が崩れて抽出できなかった場合のフォールバック
                             if not speech_target:
                                 speech_target = get_clean_speech_text(block["text"])
                                 
@@ -261,7 +254,7 @@ elif st.session_state.current_tab == "📖 学習":
                         else:
                             speak_js(get_clean_speech_text(block["text"]), st.session_state.voice_speed, "ja-JP")
 
-        # 確認クイズコーナー
+        # クイズコーナー
         with st.expander("📝 確認クイズ", expanded=True):
             score = 0
             all_answered = True
@@ -298,4 +291,4 @@ elif st.session_state.current_tab == "📖 学習":
                     "quizzes": q_list
                 })
                 save_history(st.session_state.history)
-                st.toast("日本時間で履歴を記録しました！")
+                st.toast("保存完了！")
