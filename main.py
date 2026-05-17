@@ -1,19 +1,19 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
-import io, json, time, re, os
+import io, json, time, re, datetime, os
 
 # 他のファイルから部品を読み込む
 from config import set_page_config, SUBJECT_PROMPTS
 from utils import (
-    set_page_config, load_history, save_history, speak_js, 
-    get_clean_speech_text, get_jst_now_str, load_app_config, save_app_config
+    load_history, save_history, speak_js, get_clean_speech_text,
+    load_app_config, save_app_config, get_jst_now_str
 )
 
 # ページ設定の実行
 set_page_config()
 
-# --- アプリ起動時：保存されている設定の自動ロード ---
+# --- アプリ起動時：永続保存された初期セットアップデータの自動読込 (①対策) ---
 if "app_config_loaded" not in st.session_state:
     saved_cfg = load_app_config()
     if saved_cfg:
@@ -36,7 +36,7 @@ if "voice_speed" not in st.session_state: st.session_state.voice_speed = 1.0
 if "show_voice_btns" not in st.session_state: st.session_state.show_voice_btns = False
 if "review_mode" not in st.session_state: st.session_state.review_mode = False
 
-# CSS適用
+# CSS適用（表形式対応）
 st.markdown(f"""
 <style>
 .content-body {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6; }}
@@ -71,7 +71,7 @@ if not st.session_state.setup_completed:
             st.session_state.grade = grade
             st.session_state.quiz_count = quiz_count
             
-            # 設定ファイルに永続保存
+            # ローカルJSONに初期値を保存 (①固定化)
             save_app_config({
                 "user_api_key": user_key, "school_type": school_type, "grade": grade, "quiz_count": quiz_count
             })
@@ -88,48 +88,45 @@ st.session_state.voice_speed = st.sidebar.slider("🐌 音声速度", 0.5, 2.0, 
 # --- 3. メインタブ管理 ---
 tab_study, tab_history, tab_config = st.tabs(["📖 学習", "📈 履歴", "⚙️ 設定変更"])
 
-# ⑤ 履歴機能の見やすさ改善
+# ⑤ 履歴の一覧化・見やすさ大幅改善
 with tab_history:
-    st.markdown(f"### 📂 {st.session_state.school_type} {st.session_state.grade} の学習カルテ")
+    st.markdown(f"### 📂 {st.session_state.school_type} {st.session_state.grade} の学習履歴一覧")
     
-    # 履歴データを一覧表用のスッキリした形式に変形
     all_logs = []
     for sub, logs in st.session_state.history.items():
         for idx, log in enumerate(logs):
             all_logs.append({
-                "教科": sub,
-                "日時": log.get("date", "不明"),
-                "ページ": log.get("page", "--"),
-                "正解率": log.get("score", "0%"),
-                "元インデックス": idx
+                "subject": sub,
+                "date": log.get("date", "不明"),
+                "page": log.get("page", "--"),
+                "score": log.get("score", "0%"),
+                "orig_idx": idx
             })
             
     if not all_logs:
-        st.info("まだ履歴はありません。学習を開始しましょう！")
+        st.info("履歴がまだありません。")
     else:
-        # 最新の履歴が上に来るように並び替え
-        all_logs_sorted = sorted(all_logs, key=lambda x: x["日時"], reverse=True)
+        # 日時で並び替え（最新が上）
+        all_logs_sorted = sorted(all_logs, key=lambda x: x["date"], reverse=True)
         
-        # 簡易的なスクロールコンテナの中にコンパクトに表示
-        with st.container(height=400, border=True):
+        with st.container(height=350, border=True):
             for item in all_logs_sorted:
-                with st.expander(f"【{item['教科']}】 p.{item['PAGE' if 'PAGE' in item else 'ページ']} - {item['正解率']} ({item['日時']})"):
-                    orig_log = st.session_state.history[item['教科']][item['元インデックス']]
+                with st.expander(f"【{item['subject']}】 p.{item['page']} - 正解率: {item['score']} ({item['date']})"):
+                    orig_log = st.session_state.history[item['subject']][item['orig_idx']]
+                    st.write(f"📝 収録問題数: {len(orig_log.get('quizzes', []))}問")
                     
-                    c1, c2 = st.columns([3, 1])
-                    c1.write(f"📊 クイズ問題数: {len(orig_log.get('quizzes', []))}問")
-                    # ④ 解き直しボタンのキー衝突バグを完全修正
-                    if c2.button("🔁 解き直す", key=f"btn_review_{item['教科']}_{item['元インデックス']}"):
+                    # ④ 解き直しのキー競合バグを完全修正
+                    if st.button("🔁 このクイズを解き直す", key=f"rev_btn_{item['subject']}_{item['orig_idx']}"):
                         st.session_state.final_json = {
-                            "explanation_blocks": [{"text": f"### 🕒 復習モード（{item['教科']} p.{item['ページ']}）"}],
+                            "explanation_blocks": [{"text": f"### 🕒 復習モード（{item['subject']} p.{item['page']}）"}],
                             "quizzes": orig_log["quizzes"],
-                            "used_subject": item['教科'],
-                            "page": item['ページ']
+                            "used_subject": item['subject'],
+                            "page": item['page']
                         }
                         st.session_state.review_mode = True
-                        st.toast(f"📖 {item['教科']} のクイズを復習用にセットしました！「学習」タブを開いてください。")
+                        st.toast("学習タブにクイズを読み込みました！")
 
-# ② 設定変更タブの中身（いつでも上書き可能）
+# ② 設定変更タブの配置
 with tab_config:
     st.markdown("### ⚙️ アプリ環境設定の変更")
     with st.form("edit_config_form"):
@@ -153,7 +150,6 @@ with tab_config:
             st.rerun()
 
 with tab_study:
-    # 復習モード中なら上部に警告を出す
     if st.session_state.get("review_mode", False):
         st.warning("⚠️ 現在「履歴からの解き直し（復習モード）」を実行中です。")
         if st.button("❌ 復習モードを終了して通常スキャンに戻る"):
@@ -172,17 +168,17 @@ with tab_study:
         model = genai.GenerativeModel('gemini-3-flash-preview') 
         with st.status("教科書を全文解析中..."):
             count = st.session_state.quiz_count
-            # ⑦ 解説スタイル（style_choice）をプロンプト命令へ確実に反映
+            # ⑦ 解説スタイル(style_choice)の命令をプロンプトへ完全注入
             full_prompt = f"""あなたは{st.session_state.school_type}{st.session_state.grade}担当。
 【最優先指令】クイズを必ず【例外なく{count}問】作成せよ。
 【ミッション: {subject_choice}】{SUBJECT_PROMPTS[subject_choice]}
-【重要】全体の解説文は必ず【解説スタイル：{style_choice}】の口調や雰囲気で出力せよ。
+【重要】解説ブロック（explanation_blocks）の文章は、必ず【解説スタイル：{style_choice}】に適合する口調・雰囲気・トーンで出力せよ。
 【絶対ルール】
 1. 要約禁止。画像内の全文章を一言一句100%網羅せよ。
 2. ブロック（explanation_blocks）は最大5行とし、意味のまとまりで分割せよ。
 3. ページ番号 [P.xx] は必ず各ブロックの先頭に記述し、直後で改行せよ。
 ###JSONフォーマット###
-{{ "detected_subject": "{subject_choice}", "page": "数字のみ(判定できない時は0)", "explanation_blocks": [{{"text": "[P.〇]\\n(本文)" }}], "english_only_script": "英文", "boost_comments": {{ "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, "low": {{"text":"次に期待です！教科書をもう一度よく読んで、ゆっくり解き直してみよう。","script":"つぎにきたいです きょうかしょをもういちどよくよんで ゆっくりときなおしてみよう"}} }}, "quizzes": [{{ "question":"..", "options":[".."], "answer":0 }}] }}"""
+{{ "detected_subject": "{subject_choice}", "page": "数字(判定不可なら0)", "explanation_blocks": [{{"text": "[P.〇]\\n(本文)" }}], "english_only_script": "英文", "boost_comments": {{ "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, "low": {{"text":"次に期待です！教科書をもう一度よく読んで、ゆっくり解き直してみよう。","script":"つぎにきたいです きょうかしょをもういちどよくよんで ゆっくりときなおしてみよう"}} }}, "quizzes": [{{ "question":"..", "options":[".."], "answer":0 }}] }}"""
             img = Image.open(cam_file)
             res_raw = model.generate_content([full_prompt, img])
             match = re.search(r"(\{.*\})", res_raw.text, re.DOTALL)
@@ -194,15 +190,18 @@ with tab_study:
         res = st.session_state.final_json
         used_sub = res.get("used_subject", subject_choice)
         
-        # ⑥ AIが読み取った結果の下にページ修正・手入力ボックスを配置
+        # ⑥ 【ページ数連動 ＆ 手動修正ボックス】の設置
         st.markdown("---")
         try:
-            initial_page = int(res.get("page", 0))
+            # AIが検出したページ数を初期値にする（読み取れなかった場合は 0 に倒す）
+            ai_detected_page = int(res.get("page", 0))
         except:
-            initial_page = 0
+            ai_detected_page = 0
+            
+        # 画面上に「AI判定値」を初期値とした入力ボックスを生成
+        final_page_input = st.number_input("📖 対象ページ（AIの誤認識はここで手入力修正できます）", min_value=0, max_value=999, value=ai_detected_page)
         
-        # ユーザーが自由に上書き修正できる手入力ボックス
-        final_page_input = st.number_input("📖 対象ページ数（間違っている場合は手入力で直せます）", min_value=0, max_value=999, value=initial_page)
+        # ユーザーが変更した値をリアルタイムでデータに反映
         res["page"] = str(final_page_input)
         st.markdown("---")
 
@@ -228,7 +227,7 @@ with tab_study:
                 
                 if st.session_state.show_voice_btns:
                     if st.button(f"▶ 再生", key=f"v_{i}"):
-                        # ⑨ 教科が英語の場合は、個別音声も「en-US（英語音声）」を最優先にするロジック
+                        # ⑨ 英語の時は個別音声も「en-US」を確定で割り当てる
                         lang = "en-US" if used_sub == "英語" else "ja-JP"
                         speak_js(get_clean_speech_text(block["text"]), st.session_state.voice_speed, lang)
 
@@ -238,11 +237,11 @@ with tab_study:
             all_answered = True
             q_list = res.get("quizzes", [])
             
-            # 復習モードと通常モードでキーのプレフィックスを切り替える（衝突防止）
-            key_prefix = "review" if st.session_state.get("review_mode", False) else "normal"
+            # 通常時と復習時でキーの重複を防ぐ
+            k_prefix = "review" if st.session_state.get("review_mode", False) else "normal"
             
             for i, q in enumerate(q_list):
-                ans = st.radio(f"問{i+1}: {q['question']}", q['options'], key=f"{key_prefix}_q_{i}", index=None)
+                ans = st.radio(f"問{i+1}: {q['question']}", q['options'], key=f"{k_prefix}_q_{i}", index=None)
                 if ans:
                     if q['options'].index(ans) == q['answer']:
                         st.success("⭕ 正解")
@@ -252,18 +251,19 @@ with tab_study:
                 else: 
                     all_answered = False
             
-            if all_answered and st.button("✨ 履歴に保存", use_container_width=True, key=f"{key_prefix}_save_btn"):
+            if all_answered and st.button("✨ 履歴に保存", use_container_width=True, key=f"{k_prefix}_save_btn"):
                 rate = (score / len(q_list)) * 100
                 st.metric("正解率", f"{rate:.0f}%")
                 rank = "high" if rate == 100 else "mid" if rate >= 50 else "low"
                 
-                # ⑧ 正解率による解答後の音声を「単語」ではなく「文章」としてしっかり発話
+                # ⑧ 単語切れ端ではなく、文章になった完全なスクリプトを再生
                 speak_js(res["boost_comments"][rank]["script"], st.session_state.voice_speed)
                 
-                # ③ 日本時間(get_jst_now_str)を使って履歴に保存
                 subj = res.get("used_subject", "不明")
                 if subj not in st.session_state.history: 
                     st.session_state.history[subj] = []
+                    
+                # ③ タイムゾーン問題対策（日本時間の関数を利用）
                 st.session_state.history[subj].append({
                     "date": get_jst_now_str(), 
                     "page": res.get("page", "--"), 
@@ -271,4 +271,4 @@ with tab_study:
                     "quizzes": q_list
                 })
                 save_history(st.session_state.history)
-                st.toast("学習履歴を日本時間で保存しました！")
+                st.toast("日本時間で履歴を記録しました！")
