@@ -13,7 +13,7 @@ from utils import (
 # ページ設定の実行
 set_page_config()
 
-# --- アプリ起動時：永続保存された初期セットアップデータの自動読込 (①対策) ---
+# --- アプリ起動時：保存されている設定の自動ロード ---
 if "app_config_loaded" not in st.session_state:
     saved_cfg = load_app_config()
     if saved_cfg:
@@ -36,14 +36,35 @@ if "voice_speed" not in st.session_state: st.session_state.voice_speed = 1.0
 if "show_voice_btns" not in st.session_state: st.session_state.show_voice_btns = False
 if "review_mode" not in st.session_state: st.session_state.review_mode = False
 
-# CSS適用（表形式対応）
+# 【UX改善】自動タブ移動のためのインデックス管理変数
+if "active_tab" not in st.session_state: st.session_state.active_tab = 0
+
+# CSS適用（表形式デザイン ＋ 【UX改善】画面右下に追従して浮く停止ボタンのスタイル）
 st.markdown(f"""
 <style>
 .content-body {{ font-size: {st.session_state.font_size}px !important; line-height: 1.6; }}
 .content-body table {{ font-size: {st.session_state.font_size}px !important; width: 100%; border-collapse: collapse; }}
 .content-body th, .content-body td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
+
+/* 画面右下に固定されるフローティング音声停止ボタンのCSS */
+div.stActionButton_floating {{
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 999999;
+    background-color: #ff4b4b;
+    border-radius: 50px;
+    box-shadow: 2px 2px 10px rgba(0,0,0,0.3);
+}}
 </style>
 """, unsafe_allow_html=True)
+
+# 画面追従型の音声停止ボタンを配置（常に右下に表示され、押すと即座に音声停止）
+with st.container():
+    st.markdown('<div class="stActionButton_floating">', unsafe_allow_html=True)
+    if st.button("🛑 音声停止", key="floating_stop_btn"):
+        speak_js("")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 1. 同意画面 ---
 if not st.session_state.agreed:
@@ -71,7 +92,6 @@ if not st.session_state.setup_completed:
             st.session_state.grade = grade
             st.session_state.quiz_count = quiz_count
             
-            # ローカルJSONに初期値を保存 (①固定化)
             save_app_config({
                 "user_api_key": user_key, "school_type": school_type, "grade": grade, "quiz_count": quiz_count
             })
@@ -86,11 +106,22 @@ st.session_state.font_size = st.sidebar.slider("🔍 文字サイズ", 14, 45, s
 st.session_state.voice_speed = st.sidebar.slider("🐌 音声速度", 0.5, 2.0, st.session_state.voice_speed, 0.1)
 
 # --- 3. メインタブ管理 ---
+# 【UX改善】セッション状態の active_tab と連動させ、コード側からタブの切り替えを可能に
 tab_study, tab_history, tab_config = st.tabs(["📖 学習", "📈 履歴", "⚙️ 設定変更"])
 
-# ⑤ 履歴の一覧化・見やすさ大幅改善
+# ページリロード時に、指定されたアクティブタブを開くスクリプトの埋め込み
+st.markdown(f"""
+<script>
+    var tabs = window.parent.document.querySelectorAll('.stTabs [data-baseweb="tab"]');
+    if (tabs.length > 0) {{
+        tabs[{st.session_state.active_tab}].click();
+    }}
+</script>
+""", unsafe_allow_html=True)
+
+# 📈 履歴タブ
 with tab_history:
-    st.markdown(f"### 📂 {st.session_state.school_type} {st.session_state.grade} の学習履歴一覧")
+    st.markdown(f"### 📂 {st.session_state.school_type} {st.session_state.grade} の学習履歴")
     
     all_logs = []
     for sub, logs in st.session_state.history.items():
@@ -106,16 +137,15 @@ with tab_history:
     if not all_logs:
         st.info("履歴がまだありません。")
     else:
-        # 日時で並び替え（最新が上）
         all_logs_sorted = sorted(all_logs, key=lambda x: x["date"], reverse=True)
         
-        with st.container(height=350, border=True):
+        with st.container(height=400, border=True):
             for item in all_logs_sorted:
                 with st.expander(f"【{item['subject']}】 p.{item['page']} - 正解率: {item['score']} ({item['date']})"):
                     orig_log = st.session_state.history[item['subject']][item['orig_idx']]
                     st.write(f"📝 収録問題数: {len(orig_log.get('quizzes', []))}問")
                     
-                    # ④ 解き直しのキー競合バグを完全修正
+                    # 【UX改善】「解き直し」ボタンを押したら、データを読み込んで即座に「学習」タブ（インデックス0）へ切り替える
                     if st.button("🔁 このクイズを解き直す", key=f"rev_btn_{item['subject']}_{item['orig_idx']}"):
                         st.session_state.final_json = {
                             "explanation_blocks": [{"text": f"### 🕒 復習モード（{item['subject']} p.{item['page']}）"}],
@@ -124,9 +154,10 @@ with tab_history:
                             "page": item['page']
                         }
                         st.session_state.review_mode = True
-                        st.toast("学習タブにクイズを読み込みました！")
+                        st.session_state.active_tab = 0  # 0番目（学習タブ）を指定
+                        st.rerun()
 
-# ② 設定変更タブの配置
+# ⚙️ 設定変更タブ
 with tab_config:
     st.markdown("### ⚙️ アプリ環境設定の変更")
     with st.form("edit_config_form"):
@@ -147,9 +178,14 @@ with tab_config:
             })
             st.session_state.history = load_history()
             st.success("設定を更新しました！")
+            st.session_state.active_tab = 0  # 保存後は学習タブへ戻す
             st.rerun()
 
+# 📖 学習タブ
 with tab_study:
+    # ユーザーが手動でタブを切り替えた時のためにセッションのタブインデックスを同期
+    st.session_state.active_tab = 0
+
     if st.session_state.get("review_mode", False):
         st.warning("⚠️ 現在「履歴からの解き直し（復習モード）」を実行中です。")
         if st.button("❌ 復習モードを終了して通常スキャンに戻る"):
@@ -168,7 +204,6 @@ with tab_study:
         model = genai.GenerativeModel('gemini-3-flash-preview') 
         with st.status("教科書を全文解析中..."):
             count = st.session_state.quiz_count
-            # ⑦ 解説スタイル(style_choice)の命令をプロンプトへ完全注入
             full_prompt = f"""あなたは{st.session_state.school_type}{st.session_state.grade}担当。
 【最優先指令】クイズを必ず【例外なく{count}問】作成せよ。
 【ミッション: {subject_choice}】{SUBJECT_PROMPTS[subject_choice]}
@@ -190,30 +225,25 @@ with tab_study:
         res = st.session_state.final_json
         used_sub = res.get("used_subject", subject_choice)
         
-        # ⑥ 【ページ数連動 ＆ 手動修正ボックス】の設置
+        # ページ数連動＆手入力ボックス
         st.markdown("---")
         try:
-            # AIが検出したページ数を初期値にする（読み取れなかった場合は 0 に倒す）
             ai_detected_page = int(res.get("page", 0))
         except:
             ai_detected_page = 0
             
-        # 画面上に「AI判定値」を初期値とした入力ボックスを生成
         final_page_input = st.number_input("📖 対象ページ（AIの誤認識はここで手入力修正できます）", min_value=0, max_value=999, value=ai_detected_page)
-        
-        # ユーザーが変更した値をリアルタイムでデータに反映
         res["page"] = str(final_page_input)
         st.markdown("---")
 
-        v_cols = st.columns(4)
-        if v_cols[0].button("🔊 全文"):
+        # 通常の操作用ボタン
+        v_cols = st.columns(3)
+        if v_cols[0].button("🔊 全文再生"):
             full_text = " ".join([b["text"] for b in res["explanation_blocks"]])
             speak_js(get_clean_speech_text(full_text), st.session_state.voice_speed)
-        if used_sub == "英語" and v_cols[1].button("🔊 英語のみ"):
+        if used_sub == "英語" and v_cols[1].button("🔊 英語のみ連続再生"):
             speak_js(res.get("english_only_script"), st.session_state.voice_speed, "en-US")
-        if v_cols[2].button("🛑 停止"): 
-            speak_js("")
-        if v_cols[3].button("🔊 個別"):
+        if v_cols[2].button("🔊 個別再生ボタンを表示"):
             st.session_state.show_voice_btns = not st.session_state.show_voice_btns
             st.rerun()
 
@@ -227,7 +257,7 @@ with tab_study:
                 
                 if st.session_state.show_voice_btns:
                     if st.button(f"▶ 再生", key=f"v_{i}"):
-                        # ⑨ 英語の時は個別音声も「en-US」を確定で割り当てる
+                        # 【バグ修正】英語の時は日本語の有無を無視して、確実に「en-US」の音声エンジンを割り当てる
                         lang = "en-US" if used_sub == "英語" else "ja-JP"
                         speak_js(get_clean_speech_text(block["text"]), st.session_state.voice_speed, lang)
 
@@ -237,7 +267,6 @@ with tab_study:
             all_answered = True
             q_list = res.get("quizzes", [])
             
-            # 通常時と復習時でキーの重複を防ぐ
             k_prefix = "review" if st.session_state.get("review_mode", False) else "normal"
             
             for i, q in enumerate(q_list):
@@ -256,14 +285,13 @@ with tab_study:
                 st.metric("正解率", f"{rate:.0f}%")
                 rank = "high" if rate == 100 else "mid" if rate >= 50 else "low"
                 
-                # ⑧ 単語切れ端ではなく、文章になった完全なスクリプトを再生
                 speak_js(res["boost_comments"][rank]["script"], st.session_state.voice_speed)
                 
                 subj = res.get("used_subject", "不明")
                 if subj not in st.session_state.history: 
                     st.session_state.history[subj] = []
                     
-                # ③ タイムゾーン問題対策（日本時間の関数を利用）
+                # 【バグ修正】確実な日本時間（JST）で保存
                 st.session_state.history[subj].append({
                     "date": get_jst_now_str(), 
                     "page": res.get("page", "--"), 
