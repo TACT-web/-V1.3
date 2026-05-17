@@ -185,8 +185,6 @@ elif st.session_state.current_tab == "📖 学習":
         model = genai.GenerativeModel('gemini-3-flash-preview') 
         with st.status("教科書を全文解析中..."):
             count = st.session_state.quiz_count
-            
-            # 【大修正】JSONフォーマットの定義指示から「(本文)」という邪魔な記述を排除し、config.pyの指定に完全合致させる
             full_prompt = f"""あなたは{st.session_state.school_type}{st.session_state.grade}担当。
 【最優先指令】クイズを必ず【例外なく{count}問】作成せよ。
 【ミッション: {subject_choice}】{SUBJECT_PROMPTS[subject_choice]}
@@ -230,7 +228,7 @@ elif st.session_state.current_tab == "📖 学習":
             st.session_state.show_voice_btns = not st.session_state.show_voice_btns
             st.rerun()
 
-        # 本文ブロックループ（プレーンなMarkdown出力により表描画を保証）
+        # 本文ブロックループ
         for i, block in enumerate(res["explanation_blocks"]):
             with st.container(border=True):
                 st.markdown(block["text"])
@@ -238,20 +236,31 @@ elif st.session_state.current_tab == "📖 学習":
                 if st.session_state.show_voice_btns:
                     if st.button(f"▶ 再生", key=f"v_{i}"):
                         if used_sub == "英語":
-                            # 表形式マークダウンから英文列を正確に抽出するロジック
+                            # 【超強化バグ修正】マークダウン表から純粋な「英語カラム（2列目）」のみを完璧に抽出するロジック
                             lines = block["text"].split("\n")
                             english_sentences = []
                             for line in lines:
-                                if "|" in line:
-                                    parts = [p.strip().replace("*", "") for p in line.split("|") if p.strip() or line.startswith("|")]
-                                    if len(parts) >= 3:
-                                        role_check = parts[0]
-                                        en_text = parts[1]
-                                        if "役割" not in role_check and "---" not in role_check and en_text != "英文":
-                                            english_sentences.append(en_text)
+                                # 行の先頭と末尾のパイプ処理の揺れを均一化するため、両端をトリムして処理
+                                l_str = line.strip()
+                                if l_str.startswith("|"):
+                                    # パイプで分解
+                                    parts = [p.strip() for p in l_str.split("|")]
+                                    # 正確にバラすと、先頭の「|」の左側が空要素になるため、有効なデータはparts[1], parts[2], parts[3]になる
+                                    # parts[1]: 役割, parts[2]: 英文, parts[3]: 日本語
+                                    if len(parts) >= 4:
+                                        role_col = parts[1].replace("*", "")
+                                        en_col = parts[2].replace("*", "").replace("`", "")
+                                        
+                                        # ヘッダー行、区切り線行（---）、空行、または「英文」という見出し文字自体を完全に除外
+                                        if "役割" not in role_col and "---" not in role_col and en_col != "英文" and en_col:
+                                            # 純粋な英語だけを格納
+                                            english_sentences.append(en_col)
                             
+                            # スペースで結合して1つのきれいな英文テキストにする
                             speech_target = " ".join(english_sentences)
-                            if not speech_target:
+                            
+                            # 万が一抽出に失敗した場合は、フォールバックとしてクリーンテキストを流す
+                            if not speech_target.strip():
                                 speech_target = get_clean_speech_text(block["text"])
                                 
                             speak_js(speech_target, st.session_state.voice_speed, "en-US")
