@@ -46,7 +46,7 @@ st.sidebar.header("🛠️ 画面・音声調整")
 st.session_state.font_size = st.sidebar.slider("🔍 文字サイズ", 14, 45, st.session_state.font_size)
 st.session_state.voice_speed = st.sidebar.slider("🐌 音声速度", 0.5, 2.0, st.session_state.voice_speed, 0.1)
 
-# 【重要】マークダウン構造を壊さずに、Streamlit全体の文字・テーブルサイズをグローバルに変更する安全なCSS
+# マークダウン構造を壊さずに、Streamlit全体の文字・テーブルサイズをグローバルに変更する安全なCSS
 st.markdown(f"""
 <style>
 /* 通常のテキスト、箇条書き、マークダウン全ての文字サイズ */
@@ -185,6 +185,8 @@ elif st.session_state.current_tab == "📖 学習":
         model = genai.GenerativeModel('gemini-3-flash-preview') 
         with st.status("教科書を全文解析中..."):
             count = st.session_state.quiz_count
+            
+            # 【大修正】JSONフォーマットの定義指示から「(本文)」という邪魔な記述を排除し、config.pyの指定に完全合致させる
             full_prompt = f"""あなたは{st.session_state.school_type}{st.session_state.grade}担当。
 【最優先指令】クイズを必ず【例外なく{count}問】作成せよ。
 【ミッション: {subject_choice}】{SUBJECT_PROMPTS[subject_choice]}
@@ -194,7 +196,7 @@ elif st.session_state.current_tab == "📖 学習":
 2. ブロック（explanation_blocks）は最大5行とし、意味のまとまりで分割せよ。
 3. ページ番号 [P.xx] は必ず各ブロックの先頭に記述し、直後で改行せよ。
 ###JSONフォーマット###
-{{ "detected_subject": "{subject_choice}", "page": "数字(判定不可なら0)", "explanation_blocks": [{{"text": "[P.〇]\\n(本文)" }}], "english_only_script": "英文", "boost_comments": {{ "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, "low": {{"text":"次に期待です！教科書をもう一度よく読んで、ゆっくり解き直してみよう。","script":"つぎにきたいです きょうかしょをもういちどよくよんで ゆっくりときなおしてみよう"}} }}, "quizzes": [{{ "question":"..", "options":[".."], "answer":0 }}] }}"""
+{{ "detected_subject": "{subject_choice}", "page": "数字(判定不可なら0)", "explanation_blocks": [{{"text": "[P.〇]\\n（ここに【ミッション】で指定された指定形式のコンテンツをそのまま出力すること。教科が英語の場合は必ず指示通りのマークダウン表を出力せよ）" }}], "english_only_script": "画像内の全英文のみをスペース区切りで並べた文字列", "boost_comments": {{ "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, "low": {{"text":"次に期待です！教科書をもう一度よく読んで、ゆっくり解き直してみよう。","script":"つぎにきたいです きょうかしょをもういちどよくよんで ゆっくりときなおしてみよう"}} }}, "quizzes": [{{ "question":"..", "options":[".."], "answer":0 }}] }}"""
             img = Image.open(cam_file)
             res_raw = model.generate_content([full_prompt, img])
             match = re.search(r"(\{.*\})", res_raw.text, re.DOTALL)
@@ -228,7 +230,7 @@ elif st.session_state.current_tab == "📖 学習":
             st.session_state.show_voice_btns = not st.session_state.show_voice_btns
             st.rerun()
 
-        # 本文ブロックループ（HTMLタグを完全排除してマークダウンの表描画を守る）
+        # 本文ブロックループ（プレーンなMarkdown出力により表描画を保証）
         for i, block in enumerate(res["explanation_blocks"]):
             with st.container(border=True):
                 st.markdown(block["text"])
@@ -241,12 +243,10 @@ elif st.session_state.current_tab == "📖 学習":
                             english_sentences = []
                             for line in lines:
                                 if "|" in line:
-                                    # 余計なスペースやアスタリスクを除去しつつ分割
                                     parts = [p.strip().replace("*", "") for p in line.split("|") if p.strip() or line.startswith("|")]
                                     if len(parts) >= 3:
                                         role_check = parts[0]
                                         en_text = parts[1]
-                                        # ヘッダー行や区切り線でなければ英文としてストック
                                         if "役割" not in role_check and "---" not in role_check and en_text != "英文":
                                             english_sentences.append(en_text)
                             
