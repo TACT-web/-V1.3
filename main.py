@@ -185,6 +185,9 @@ elif st.session_state.current_tab == "📖 学習":
         model = genai.GenerativeModel('gemini-3-flash-preview') 
         with st.status("教科書を全文解析中..."):
             count = st.session_state.quiz_count
+            
+            # 【修正点】未完だったf-stringのプロンプトとJSONテンプレートを閉じカッコ「"""」できちんと閉じました。
+            # また、プロンプト内で「{」や「}」を変数展開ではなく単なる文字として扱うため「{{」「}}」にエスケープしています。
             full_prompt = f"""あなたは{st.session_state.school_type}{st.session_state.grade}担当。
 【最優先指令】クイズを必ず【例外なく{count}問】作成せよ。
 【ミッション: {subject_choice}】{SUBJECT_PROMPTS[subject_choice]}
@@ -194,10 +197,29 @@ elif st.session_state.current_tab == "📖 学習":
 2. ブロック（explanation_blocks）は最大5行とし、意味のまとまりで分割せよ。
 3. ページ番号 [P.xx] は必ず各ブロックの先頭に記述し、直後で改行せよ。
 ###JSONフォーマット###
-{{ "detected_subject": "{subject_choice}", "page": "数字(判定不可なら0)", "explanation_blocks": [{{"text": "[P.〇]\\n(本文)" }}], "english_only_script": "英文", "boost_comments": {{ "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, "low": {{"text":"次に期待です！教科書をもう一度よく
+{{ 
+  "detected_subject": "{subject_choice}", 
+  "page": "数字(判定不可なら0)", 
+  "explanation_blocks": [{{"text": "[P.〇]\\n(本文)" }}], 
+  "english_only_script": "英文", 
+  "boost_comments": {{ 
+    "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, 
+    "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, 
+    "low": {{"text":"次に期待です！教科書をもう一度よく読み直してみましょう。","script":"つぎにきたいです きょうかしょをもういちどよくよみなおしてみましょう"}}
+  }},
+  "quizzes": [
+    {{
+      "question": "問題文",
+      "options": ["選択肢1", "選択肢2", "選択肢3", "選択肢4"],
+      "answer": 0
+    }}
+  ]
+}}"""
+            
             img = Image.open(cam_file)
             res_raw = model.generate_content([full_prompt, img])
             match = re.search(r"(\{.*?\})", res_raw.text, re.DOTALL)
+           
             if match:
                 st.session_state.final_json = json.loads(match.group(1))
                 st.session_state.final_json["used_subject"] = subject_choice
@@ -285,13 +307,13 @@ elif st.session_state.current_tab == "📖 学習":
                 rate = (score / len(q_list)) * 100
                 st.metric("正解率", f"{rate:.0f}%")
                 rank = "high" if rate == 100 else "mid" if rate >= 50 else "low"
-                
+              
                 speak_js(res["boost_comments"][rank]["script"], st.session_state.voice_speed)
                 
                 subj = res.get("used_subject", "不明")
                 if subj not in st.session_state.history: 
                     st.session_state.history[subj] = []
-                    
+                     
                 st.session_state.history[subj].append({
                     "date": get_jst_now_str(), 
                     "page": res.get("page", "--"), 
