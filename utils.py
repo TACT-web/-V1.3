@@ -1,5 +1,21 @@
 import streamlit as st
-import json, os, re
+import json, os, re, datetime
+
+# --- 初期セットアップの永続化 ---
+CONFIG_FILE = "app_config.json"
+
+def load_app_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_app_config(config_data):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(config_data, f, ensure_ascii=False, indent=2)
 
 # --- 履歴管理 ---
 def get_history_filename():
@@ -21,6 +37,13 @@ def save_history(history):
     filename = get_history_filename()
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
+
+# --- 日本時間の取得 ---
+def get_jst_now_str():
+    # サーバーの時刻（UTCなど）に関わらず日本時間(JST)を計算
+    utc_now = datetime.datetime.utcnow()
+    jst_now = utc_now + datetime.timedelta(hours=9)
+    return jst_now.strftime("%Y-%m-%d %H:%M")
 
 # --- 音声再生エンジン ---
 def speak_js(text, speed=1.0, lang="ja-JP"):
