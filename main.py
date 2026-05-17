@@ -197,7 +197,7 @@ elif st.session_state.current_tab == "📖 学習":
 {{ "detected_subject": "{subject_choice}", "page": "数字(判定不可なら0)", "explanation_blocks": [{{"text": "[P.〇]\\n(本文)" }}], "english_only_script": "英文", "boost_comments": {{ "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, "low": {{"text":"次に期待です！教科書をもう一度よく
             img = Image.open(cam_file)
             res_raw = model.generate_content([full_prompt, img])
-            match = re.search(r"(\{.*\})", res_raw.text, re.DOTALL)
+            match = re.search(r"(\{.*?\})", res_raw.text, re.DOTALL)
             if match:
                 st.session_state.final_json = json.loads(match.group(1))
                 st.session_state.final_json["used_subject"] = subject_choice
