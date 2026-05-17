@@ -37,12 +37,20 @@ if not st.session_state.agreed:
 if not st.session_state.setup_completed:
     st.subheader("⚙️ 初期セットアップ")
     with st.form("setup_form"):
-        st.session_state.user_api_key = st.text_input("Gemini API Key", type="password")
+        user_key = st.text_input("Gemini API Key", type="password", value=st.session_state.user_api_key)
         c1, c2 = st.columns(2)
-        st.session_state.school_type = c1.selectbox("学校区分", ["小学生", "中学生", "高校生"])
-        st.session_state.grade = c1.selectbox("学年", [f"{i}年生" for i in range(1, 7)])
-        st.session_state.quiz_count = c2.selectbox("問題数", [10, 15, 20, 25])
+        school_type = c1.selectbox("学校区分", ["小学生", "中学生", "高校生"])
+        grade = c1.selectbox("学年", [f"{i}年生" for i in range(1, 7)])
+        quiz_count = c2.selectbox("問題数", [10, 15, 20, 25])
+        
         if st.form_submit_button("🚀 学習を開始"):
+            # フォームが送信された瞬間にセッション状態へ値を確定させて保存する
+            st.session_state.user_api_key = user_key
+            st.session_state.school_type = school_type
+            st.session_state.grade = grade
+            st.session_state.quiz_count = quiz_count
+            
+            # 学びのデータが確定した後に履歴を安全にロードする
             st.session_state.history = load_history()
             st.session_state.setup_completed = True
             st.rerun()
