@@ -2,6 +2,8 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 import io, json, time, re, datetime, os
+from pydantic import BaseModel, Field
+from typing import List, Dict
 
 # 他のファイルから部品を読み込む
 from config import set_page_config, SUBJECT_PROMPTS
@@ -12,6 +14,33 @@ from utils import (
 
 # ページ設定の実行
 set_page_config()
+
+# --- Geminiの出力構造定義（JSONDecodeErrorを永久に防ぐための設定） ---
+class ExplanationBlock(BaseModel):
+    text: str = Field(description="[P.〇]\\n(本文) の形式のテキスト。意味のまとまりで分割し最大5行。")
+
+class CommentDetail(BaseModel):
+    text: str
+    script: str
+
+class BoostComments(BaseModel):
+    high: CommentDetail
+    mid: CommentDetail
+    low: CommentDetail
+
+class QuizItem(BaseModel):
+    question: str
+    options: List[str]
+    answer: int
+
+class TextbookResponse(BaseModel):
+    detected_subject: str
+    page: str
+    explanation_blocks: List[ExplanationBlock]
+    english_only_script: str
+    boost_comments: BoostComments
+    quizzes: List[QuizItem]
+
 
 # --- アプリ起動時：保存されている設定の自動ロード ---
 if "app_config_loaded" not in st.session_state:
@@ -186,8 +215,6 @@ elif st.session_state.current_tab == "📖 学習":
         with st.status("教科書を全文解析中..."):
             count = st.session_state.quiz_count
             
-            # 【修正点】未完だったf-stringのプロンプトとJSONテンプレートを閉じカッコ「"""」できちんと閉じました。
-            # また、プロンプト内で「{」や「}」を変数展開ではなく単なる文字として扱うため「{{」「}}」にエスケープしています。
             full_prompt = f"""あなたは{st.session_state.school_type}{st.session_state.grade}担当。
 【最優先指令】クイズを必ず【例外なく{count}問】作成せよ。
 【ミッション: {subject_choice}】{SUBJECT_PROMPTS[subject_choice]}
@@ -196,33 +223,29 @@ elif st.session_state.current_tab == "📖 学習":
 1. 要約禁止。画像内の全文章を一言一句100%網羅せよ。
 2. ブロック（explanation_blocks）は最大5行とし、意味のまとまりで分割せよ。
 3. ページ番号 [P.xx] は必ず各ブロックの先頭に記述し、直後で改行せよ。
-###JSONフォーマット###
-{{ 
-  "detected_subject": "{subject_choice}", 
-  "page": "数字(判定不可なら0)", 
-  "explanation_blocks": [{{"text": "[P.〇]\\n(本文)" }}], 
-  "english_only_script": "英文", 
-  "boost_comments": {{ 
-    "high": {{"text":"素晴らしい！満点です！この調子でどんどん進みましょう！","script":"すばらしい まんてんです このちょうしでどんどんすすみましょう"}}, 
-    "mid": {{"text":"よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！","script":"よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう"}}, 
-    "low": {{"text":"次に期待です！教科書をもう一度よく読み直してみましょう。","script":"つぎにきたいです きょうかしょをもういちどよくよみなおしてみましょう"}}
-  }},
-  "quizzes": [
-    {{
-      "question": "問題文",
-      "options": ["選択肢1", "選択肢2", "選択肢3", "選択肢4"],
-      "answer": 0
-    }}
-  ]
-}}"""
+4. highのコメント例: 「素晴らしい！満点です！この調子でどんどん進みましょう！」 / 「すばらしい まんてんです このちょうしでどんどんすすみましょう」
+5. midのコメント例: 「よく頑張りました！間違えたところを復習して、もう一度挑戦してみよう！」 / 「よくがんばりました まちがえたところをふくしゅうして もういちどちょうせんしてみよう」
+6. lowのコメント例: 「次に期待です！教科書をもう一度よく読み直してみましょう。」 / 「つぎにきたいです きょうかしょをもういちどよくよみなおしてみましょう」
+"""
             
             img = Image.open(cam_file)
-            res_raw = model.generate_content([full_prompt, img])
-            match = re.search(r"(\{.*?\})", res_raw.text, re.DOTALL)
-           
-            if match:
-                st.session_state.final_json = json.loads(match.group(1))
-                st.session_state.final_json["used_subject"] = subject_choice
+            
+            # 【重要変更点】Structured Outputsを適用し、API側で強制的にスキーマを確定させます
+            response = model.generate_content(
+                [full_prompt, img],
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=TextbookResponse
+                )
+            )
+            
+            # 100%綺麗なJSONテキストが確約されるため、直接辞書にパース可能
+            try:
+                parsed_data = json.loads(response.text)
+                parsed_data["used_subject"] = subject_choice
+                st.session_state.final_json = parsed_data
+            except Exception as e:
+                st.error(f"データの読み込みに失敗しました。もう一度お試しください。({str(e)})")
 
     if st.session_state.final_json:
         res = st.session_state.final_json
@@ -306,9 +329,24 @@ elif st.session_state.current_tab == "📖 学習":
             if all_answered and st.button("✨ 履歴に保存", use_container_width=True, key=f"{k_prefix}_save_btn"):
                 rate = (score / len(q_list)) * 100
                 st.metric("正解率", f"{rate:.0f}%")
+                
+                # 文字列への安全なアクセスを考慮
                 rank = "high" if rate == 100 else "mid" if rate >= 50 else "low"
-              
-                speak_js(res["boost_comments"][rank]["script"], st.session_state.voice_speed)
+                boost_comments = res.get("boost_comments", {})
+                
+                # スクリプトの安全な取得
+                if isinstance(boost_comments, dict):
+                    rank_comment = boost_comments.get(rank, {})
+                    if isinstance(rank_comment, dict):
+                        script_text = rank_comment.get("script", "")
+                    else:
+                        script_text = getattr(rank_comment, "script", "")
+                else:
+                    rank_comment = getattr(boost_comments, rank, None)
+                    script_text = getattr(rank_comment, "script", "")
+                
+                if script_text:
+                    speak_js(script_text, st.session_state.voice_speed)
                 
                 subj = res.get("used_subject", "不明")
                 if subj not in st.session_state.history: 
